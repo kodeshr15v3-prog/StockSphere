@@ -130,3 +130,13 @@ const getMe = async (req, res) => {
 };
 
 module.exports = { register, login, getMe };
+// Supervised Learning
+// Time-Series Forecasting
+// Ordinary Least Squares (OLS)
+// Polynomial Regression (Degree 2 / Quadratic)
+// Linear Regression (used as a fallback)
+// Matrix Algebra & Linear Systems (Vandermonde Matrix, Transposition, Multiplication, and Inversion)
+// Model Evaluation Metrics (specifically $R^2$ Score and Mean Absolute Error)
+// Residual Analysis & Standard Error of the Estimate
+// Confidence Intervals & Statistical Volatility Bands (the "cone of uncertainty")
+// Inference Caching

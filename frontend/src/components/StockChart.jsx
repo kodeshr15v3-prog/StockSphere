@@ -21,7 +21,7 @@ const TIMEFRAMES = [
   { label: '1Y', resolution: 'W', days: 365 },
 ];
 
-const StockChart = ({ symbol }) => {
+const StockChart = ({ symbol, predictionsData, predictionsActive, predictionsLoading, onTogglePredictions }) => {
   const [candles, setCandles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -64,28 +64,106 @@ const StockChart = ({ symbol }) => {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  const chartData = {
-    labels: candles.map((c) => formatLabel(c.time)),
-    datasets: [
-      {
-        data: candles.map((c) => c.close),
-        borderColor: color,
-        borderWidth: 2,
-        backgroundColor: (ctx) => {
-          const gradient = ctx.chart.ctx.createLinearGradient(0, 0, 0, 300);
-          gradient.addColorStop(0, colorDim);
-          gradient.addColorStop(1, 'rgba(0,0,0,0)');
-          return gradient;
-        },
-        fill: true,
-        tension: 0.3,
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        pointHoverBackgroundColor: color,
-        pointHoverBorderColor: '#fff',
-        pointHoverBorderWidth: 2,
+  const hasPredictions = predictionsData && predictionsData.predictions && predictionsData.predictions.length > 0;
+
+  const historicalLabels = candles.map((c) => formatLabel(c.time));
+  const predictedLabels = hasPredictions 
+    ? predictionsData.predictions.map((p) => {
+        const d = new Date(p.time * 1000);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      }) 
+    : [];
+
+  const labels = [...historicalLabels, ...predictedLabels];
+
+  const datasets = [
+    {
+      label: 'Historical Price',
+      data: candles.map((c) => c.close),
+      borderColor: color,
+      borderWidth: 2,
+      backgroundColor: (ctx) => {
+        const gradient = ctx.chart.ctx.createLinearGradient(0, 0, 0, 300);
+        gradient.addColorStop(0, colorDim);
+        gradient.addColorStop(1, 'rgba(0,0,0,0)');
+        return gradient;
       },
-    ],
+      fill: !hasPredictions, // Disable fill when predictions are shown for a cleaner look
+      tension: 0.3,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      pointHoverBackgroundColor: color,
+      pointHoverBorderColor: '#fff',
+      pointHoverBorderWidth: 2,
+    }
+  ];
+
+  if (hasPredictions) {
+    const isTrendBullish = predictionsData.metrics.trend === 'Bullish';
+    const isTrendBearish = predictionsData.metrics.trend === 'Bearish';
+    const predColor = isTrendBullish ? '#00d4aa' : isTrendBearish ? '#ff4d6d' : '#60a5fa';
+
+    // Pad future datasets with nulls for historical points (except the last one to connect lines)
+    const predictedData = Array(candles.length - 1).fill(null);
+    const confidenceHighData = Array(candles.length - 1).fill(null);
+    const confidenceLowData = Array(candles.length - 1).fill(null);
+
+    if (candles.length > 0) {
+      const lastClose = candles[candles.length - 1].close;
+      predictedData.push(lastClose);
+      confidenceHighData.push(lastClose);
+      confidenceLowData.push(lastClose);
+    }
+
+    predictionsData.predictions.forEach((p) => {
+      predictedData.push(p.close);
+      confidenceHighData.push(p.confidenceHigh);
+      confidenceLowData.push(p.confidenceLow);
+    });
+
+    datasets.push({
+      label: 'AI Forecast',
+      data: predictedData,
+      borderColor: predColor,
+      borderWidth: 2,
+      borderDash: [6, 4],
+      fill: false,
+      tension: 0.3,
+      pointRadius: 0,
+      pointHoverRadius: 5,
+      pointHoverBackgroundColor: predColor,
+      pointHoverBorderColor: '#fff',
+      pointHoverBorderWidth: 2,
+    });
+
+    datasets.push({
+      label: 'Confidence High (95%)',
+      data: confidenceHighData,
+      borderColor: 'rgba(148, 163, 184, 0.25)',
+      borderWidth: 1,
+      borderDash: [3, 3],
+      fill: false,
+      tension: 0.3,
+      pointRadius: 0,
+      pointHoverRadius: 0,
+    });
+
+    datasets.push({
+      label: 'Confidence Low (95%)',
+      data: confidenceLowData,
+      borderColor: 'rgba(148, 163, 184, 0.25)',
+      borderWidth: 1,
+      borderDash: [3, 3],
+      fill: false,
+      tension: 0.3,
+      pointRadius: 0,
+      pointHoverRadius: 0,
+    });
+  }
+
+  const chartData = {
+    labels,
+    datasets,
   };
 
   const options = {
@@ -104,9 +182,13 @@ const StockChart = ({ symbol }) => {
         titleFont: { family: 'JetBrains Mono', size: 11 },
         bodyFont: { family: 'JetBrains Mono', size: 13, weight: 'bold' },
         padding: 12,
-        displayColors: false,
+        displayColors: true, // Display color box to differentiate datasets
         callbacks: {
-          label: (ctx) => `$${ctx.parsed.y.toFixed(2)}`,
+          label: (ctx) => {
+            const label = ctx.dataset.label || '';
+            const val = ctx.parsed.y;
+            return ` ${label}: $${val.toFixed(2)}`;
+          },
         },
       },
     },
@@ -138,7 +220,7 @@ const StockChart = ({ symbol }) => {
   return (
     <div className="card p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <h3 className="font-display font-semibold text-white">Price Chart</h3>
           {candles.length >= 2 && (
@@ -148,21 +230,46 @@ const StockChart = ({ symbol }) => {
           )}
         </div>
 
-        {/* Timeframe buttons */}
-        <div className="flex gap-1 bg-dark-800 rounded-xl p-1">
-          {TIMEFRAMES.map((tf) => (
-            <button
-              key={tf.label}
-              onClick={() => setActiveTimeframe(tf)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all duration-200 ${
-                activeTimeframe.label === tf.label
-                  ? 'bg-accent-green text-dark-900'
-                  : 'text-gray-500 hover:text-gray-300'
-              }`}
-            >
-              {tf.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* AI Predictor Toggle */}
+          <button
+            onClick={onTogglePredictions}
+            disabled={predictionsLoading}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-bold border transition-all duration-200 ${
+              predictionsActive
+                ? 'bg-accent-green/10 border-accent-green text-accent-green hover:bg-accent-green/20'
+                : 'border-surface-border bg-dark-800 text-gray-400 hover:border-gray-600 hover:text-white'
+            }`}
+          >
+            {predictionsLoading ? (
+              <>
+                <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+                <span>CALCULATING...</span>
+              </>
+            ) : (
+              <>
+                <span>✨</span>
+                <span>{predictionsActive ? 'AI PREDICTOR ON' : 'AI PREDICTOR'}</span>
+              </>
+            )}
+          </button>
+
+          {/* Timeframe buttons */}
+          <div className="flex gap-1 bg-dark-800 rounded-xl p-1">
+            {TIMEFRAMES.map((tf) => (
+              <button
+                key={tf.label}
+                onClick={() => setActiveTimeframe(tf)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all duration-200 ${
+                  activeTimeframe.label === tf.label
+                    ? 'bg-accent-green text-dark-900'
+                    : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {tf.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

@@ -23,6 +23,11 @@ const stockService = {
     const { data } = await API.get('/stocks/market-status');
     return data;
   },
+
+  getPrediction: async (symbol) => {
+    const { data } = await API.get(`/stocks/predict/${symbol}`);
+    return data;
+  },
 };
 
 export default stockService;

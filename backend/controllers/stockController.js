@@ -217,4 +217,217 @@ const getMarketStatus = async (req, res) => {
   }
 };
 
-module.exports = { searchStocks, getStockQuote, getStockCandles, getMarketStatus };
+// ─────────────────────────────────────────────────────────────
+// @desc    Get AI Stock Price Prediction (Polynomial Regression Degree 2)
+// @route   GET /api/stocks/predict/:symbol
+// @access  Private
+// ─────────────────────────────────────────────────────────────
+const getStockPrediction = async (req, res) => {
+  const { symbol } = req.params;
+  const sym = symbol.toUpperCase();
+
+  const now = Math.floor(Date.now() / 1000);
+  const fromTime = now - 45 * 24 * 60 * 60; // 45 days ago to ensure we get at least 30 trading days
+
+  const cacheKey = `predict:${sym}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return res.json(cached);
+
+  try {
+    // Fetch historical daily price candles from Yahoo Finance
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?period1=${fromTime}&period2=${now}&interval=1d`;
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+    });
+    if (!response.ok) throw new Error(`Yahoo API error: ${response.status}`);
+    const data = await response.json();
+
+    const result = data.chart?.result?.[0];
+    if (!result || !result.timestamp) {
+      return res.status(404).json({ success: false, message: 'No historical data available for prediction.' });
+    }
+
+    const quote = result.indicators.quote[0];
+    const candles = [];
+    for (let i = 0; i < result.timestamp.length; i++) {
+      if (quote.open[i] !== null && quote.close[i] !== null && quote.close[i] !== undefined) {
+        candles.push({
+          time: result.timestamp[i],
+          close: quote.close[i],
+        });
+      }
+    }
+
+    // Take the last 30 daily data points for training
+    const points = candles.slice(-30);
+    const N = points.length;
+
+    if (N < 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient historical data to train the prediction model. Need at least 10 trading days.',
+      });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Ordinary Least Squares (OLS) Polynomial Regression (Degree 2)
+    // Model: y = beta2 * x^2 + beta1 * x + beta0
+    // Where x is the time step index [0, 1, ..., N-1]
+    // ─────────────────────────────────────────────────────────────
+    let Sx = 0;
+    let Sx2 = 0;
+    let Sx3 = 0;
+    let Sx4 = 0;
+    let Sy = 0;
+    let Sxy = 0;
+    let Sx2y = 0;
+
+    for (let i = 0; i < N; i++) {
+      const x = i;
+      const y = points[i].close;
+      const x2 = x * x;
+      const x3 = x2 * x;
+      const x4 = x2 * x2;
+
+      Sx += x;
+      Sx2 += x2;
+      Sx3 += x3;
+      Sx4 += x4;
+      Sy += y;
+      Sxy += x * y;
+      Sx2y += x2 * y;
+    }
+
+    // Vandermonde normal matrix components (A = X^T * X)
+    // A = [ [N,   Sx,  Sx2],
+    //       [Sx,  Sx2, Sx3],
+    //       [Sx2, Sx3, Sx4] ]
+    const A00 = N,   A01 = Sx,  A02 = Sx2;
+    const A10 = Sx,  A11 = Sx2, A12 = Sx3;
+    const A20 = Sx2, A21 = Sx3, A22 = Sx4;
+
+    // Vector B = X^T * y
+    // B = [Sy, Sxy, Sx2y]
+    const B0 = Sy;
+    const B1 = Sxy;
+    const B2 = Sx2y;
+
+    // Compute determinant of A using Cramer's rule
+    const det = A00 * (A11 * A22 - A12 * A21) -
+                A01 * (A10 * A22 - A12 * A20) +
+                A02 * (A10 * A21 - A11 * A20);
+
+    let beta0 = 0;
+    let beta1 = 0;
+    let beta2 = 0;
+
+    if (Math.abs(det) < 1e-6) {
+      // Fallback: Linear Regression (Degree 1) if matrix is singular
+      const Sxx = Sx2 - (Sx * Sx) / N;
+      const SxyCov = Sxy - (Sx * Sy) / N;
+      beta1 = Sxx !== 0 ? SxyCov / Sxx : 0;
+      beta0 = (Sy - beta1 * Sx) / N;
+      beta2 = 0;
+    } else {
+      // Compute inverse of A (adjugate / det)
+      const invDet = 1.0 / det;
+      const inv00 = (A11 * A22 - A12 * A21) * invDet;
+      const inv01 = (A02 * A21 - A01 * A22) * invDet;
+      const inv02 = (A01 * A12 - A02 * A11) * invDet;
+
+      const inv10 = (A12 * A20 - A10 * A22) * invDet;
+      const inv11 = (A00 * A22 - A02 * A20) * invDet;
+      const inv12 = (A02 * A10 - A00 * A12) * invDet;
+
+      const inv20 = (A10 * A21 - A11 * A20) * invDet;
+      const inv21 = (A01 * A20 - A00 * A21) * invDet;
+      const inv22 = (A00 * A11 - A01 * A10) * invDet;
+
+      // Solve for beta coefficients (beta = A^-1 * B)
+      beta0 = inv00 * B0 + inv01 * B1 + inv02 * B2;
+      beta1 = inv10 * B0 + inv11 * B1 + inv12 * B2;
+      beta2 = inv20 * B0 + inv21 * B1 + inv22 * B2;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Model Evaluation: Compute R^2, MAE, and Standard Error
+    // ─────────────────────────────────────────────────────────────
+    let rss = 0;
+    let tss = 0;
+    let absoluteErrorsSum = 0;
+    const yMean = Sy / N;
+
+    for (let i = 0; i < N; i++) {
+      const x = i;
+      const y = points[i].close;
+      const yHat = beta0 + beta1 * x + beta2 * x * x;
+      const e = y - yHat;
+
+      rss += e * e;
+      tss += (y - yMean) * (y - yMean);
+      absoluteErrorsSum += Math.abs(e);
+    }
+
+    const r2 = tss > 0 ? Math.max(0, Math.min(1, 1 - (rss / tss))) : 0;
+    const mae = absoluteErrorsSum / N;
+    const standardError = N > 3 ? Math.sqrt(rss / (N - 3)) : 1.0;
+
+    // Format the equation string
+    const formula = `y = ${beta2.toFixed(4)}x² ${beta1 >= 0 ? '+' : '-'} ${Math.abs(beta1).toFixed(4)}x ${beta0 >= 0 ? '+' : '-'} ${Math.abs(beta0).toFixed(2)}`;
+
+    // ─────────────────────────────────────────────────────────────
+    // Forecast Projections: Next 5 Days
+    // ─────────────────────────────────────────────────────────────
+    const predictions = [];
+    const lastTime = points[N - 1].time;
+    const lastPrice = points[N - 1].close;
+
+    for (let j = 1; j <= 5; j++) {
+      const x = N - 1 + j;
+      const predClose = Math.max(0.01, beta0 + beta1 * x + beta2 * x * x);
+
+      // Uncertainty grows as a cone: margin expands by 15% each day
+      const margin = 1.96 * standardError * (1 + 0.15 * j);
+      const confidenceHigh = predClose + margin;
+      const confidenceLow = Math.max(0.01, predClose - margin);
+
+      predictions.push({
+        time: lastTime + j * 86400, // add 1 day in seconds
+        close: parseFloat(predClose.toFixed(4)),
+        confidenceHigh: parseFloat(confidenceHigh.toFixed(4)),
+        confidenceLow: parseFloat(confidenceLow.toFixed(4)),
+      });
+    }
+
+    // Determine trend based on percentage change from last historical price to the 5th day projection
+    const finalPred = predictions[4].close;
+    const pctChange = ((finalPred - lastPrice) / lastPrice) * 100;
+    let trend = 'Neutral';
+    if (pctChange > 0.5) {
+      trend = 'Bullish';
+    } else if (pctChange < -0.5) {
+      trend = 'Bearish';
+    }
+
+    const payload = {
+      success: true,
+      symbol: sym,
+      formula,
+      metrics: {
+        r2: parseFloat(r2.toFixed(4)),
+        mae: parseFloat(mae.toFixed(4)),
+        trend,
+      },
+      predictions,
+    };
+
+    // Cache predictions for 15 minutes
+    cacheSet(cacheKey, payload, 15 * 60_000);
+    res.json(payload);
+  } catch (error) {
+    console.error('Prediction error:', error.message);
+    res.status(500).json({ success: false, message: 'Failed to generate stock prediction.' });
+  }
+};
+
+module.exports = { searchStocks, getStockQuote, getStockCandles, getMarketStatus, getStockPrediction };

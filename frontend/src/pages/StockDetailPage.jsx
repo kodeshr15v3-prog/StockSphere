@@ -7,6 +7,7 @@ import { fetchStockQuote, updateStockPrice } from '../store/slices/stocksSlice';
 import { useSocket } from '../context/SocketContext';
 import StockChart from '../components/StockChart';
 import toast from 'react-hot-toast';
+import stockService from '../services/stockService';
 
 const StockDetailPage = () => {
   const { symbol } = useParams();
@@ -28,6 +29,39 @@ const StockDetailPage = () => {
   const [tradeModalOpen, setTradeModalOpen] = useState(false);
   const [tradeType, setTradeType] = useState('BUY');
   const [quantity, setQuantity] = useState(1);
+
+  const [predictionsActive, setPredictionsActive] = useState(false);
+  const [predictionsLoading, setPredictionsLoading] = useState(false);
+  const [predictionsData, setPredictionsData] = useState(null);
+
+  const handleTogglePredictions = async () => {
+    if (predictionsActive) {
+      setPredictionsActive(false);
+      return;
+    }
+
+    if (predictionsData) {
+      setPredictionsActive(true);
+      return;
+    }
+
+    setPredictionsLoading(true);
+    try {
+      const data = await stockService.getPrediction(symbol);
+      if (data.success) {
+        setPredictionsData(data);
+        setPredictionsActive(true);
+        toast.success('AI market forecast generated!');
+      } else {
+        toast.error(data.message || 'Failed to generate forecast');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.message || 'Failed to connect to prediction engine');
+    } finally {
+      setPredictionsLoading(false);
+    }
+  };
 
   // Portfolio holding for this symbol
   const { data: portfolio } = useSelector((state) => state.portfolio);
@@ -284,7 +318,70 @@ const StockDetailPage = () => {
       </div>
 
       {/* Chart */}
-      <StockChart symbol={symbol?.toUpperCase()} />
+      <StockChart
+        symbol={symbol?.toUpperCase()}
+        predictionsData={predictionsActive ? predictionsData : null}
+        predictionsActive={predictionsActive}
+        predictionsLoading={predictionsLoading}
+        onTogglePredictions={handleTogglePredictions}
+      />
+
+      {/* AI Metrics Card */}
+      {predictionsActive && predictionsData && (
+        <div className="card p-6 bg-gradient-to-br from-dark-800 to-dark-900 border border-accent-green/20 shadow-xl animate-fade-in">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-accent-green/10 border border-accent-green/30 rounded-xl flex items-center justify-center text-xl">
+                ✨
+              </div>
+              <div>
+                <h3 className="font-display font-bold text-white text-lg">AI Market Forecaster</h3>
+                <p className="text-gray-500 text-xs font-mono">MODEL: Polynomial Regression (Degree 2)</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <span className={`px-3 py-1 rounded-full text-xs font-mono font-bold tracking-wider ${
+                predictionsData.metrics.trend === 'Bullish'
+                  ? 'bg-accent-green/15 text-accent-green border border-accent-green/30'
+                  : predictionsData.metrics.trend === 'Bearish'
+                  ? 'bg-accent-red/15 text-accent-red border border-accent-red/30'
+                  : 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
+              }`}>
+                TREND: {predictionsData.metrics.trend.toUpperCase()} {predictionsData.metrics.trend === 'Bullish' ? '📈' : predictionsData.metrics.trend === 'Bearish' ? '📉' : '➡️'}
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            <div className="bg-dark-900/50 border border-surface-border rounded-xl p-4">
+              <p className="text-gray-500 text-xs mb-1">Model Accuracy (R²)</p>
+              <p className="text-lg font-mono font-bold text-white">{(predictionsData.metrics.r2 * 100).toFixed(1)}%</p>
+              <p className="text-[10px] text-gray-600 mt-1">Variance explained by the trend line</p>
+            </div>
+            <div className="bg-dark-900/50 border border-surface-border rounded-xl p-4">
+              <p className="text-gray-500 text-xs mb-1">Expected Error (MAE)</p>
+              <p className="text-lg font-mono font-bold text-white">${predictionsData.metrics.mae.toFixed(2)}</p>
+              <p className="text-[10px] text-gray-600 mt-1">Average historical margin of error</p>
+            </div>
+            <div className="bg-dark-900/50 border border-surface-border rounded-xl p-4">
+              <p className="text-gray-500 text-xs mb-1">Fitted Mathematical Model</p>
+              <p className="text-xs font-mono font-bold text-accent-green truncate mt-1.5" title={predictionsData.formula}>
+                {predictionsData.formula}
+              </p>
+              <p className="text-[10px] text-gray-600 mt-2">Quadratic equation representing trend</p>
+            </div>
+          </div>
+
+          <div className="border-t border-surface-border pt-4 text-xs text-gray-500 space-y-2 leading-relaxed">
+            <p>
+              <strong>How it works:</strong> The forecasting engine fits a second-degree polynomial curve ($y = \beta_2 x^2 + \beta_1 x + \beta_0$) to the past 30 days of closing prices using the Ordinary Least Squares (OLS) method. The curve is then projected 5 days into the future to establish a trend.
+            </p>
+            <p>
+              <strong>Statistical Confidence:</strong> The dashed bounds on the chart represent a 95% confidence interval ($\pm 1.96 \times S_e$), reflecting volatility and price dispersion. Future projections are statistical estimations and should not be treated as financial advice.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Additional info */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
