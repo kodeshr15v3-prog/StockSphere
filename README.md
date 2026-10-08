@@ -35,6 +35,11 @@ StockSphere is a modern, full-stack virtual stock trading web application built 
 * **Social Trading:** A dedicated Community page where users can share tips and analysis.
 * **Real-time Interactions:** New posts, comments, and "likes" are broadcasted live via Socket.io to all active users without needing a page refresh.
 
+### 7. 🤖 Generative AI & Explainable ML (XAI Bull/Bear Investment Thesis)
+* **Explainable AI (XAI) Layer:** Bridges traditional Machine Learning (2nd-degree Polynomial Least-Squares regression) with modern Generative AI to translate complex numerical forecasts into plain-English institutional research memos.
+* **Bull vs. Bear Synthesis:** Synthesizes upside catalysts, downside risks, resistance/support thresholds, and tailored virtual trading tactics.
+* **Robust Multi-Tier Engine:** Supports Google Gemini LLM API (Flash/Pro) with a high-fidelity local grounded neural fallback ensuring zero demo errors.
+
 ---
 
 ## 🛠️ Technology Stack

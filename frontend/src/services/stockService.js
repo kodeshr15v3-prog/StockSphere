@@ -28,6 +28,11 @@ const stockService = {
     const { data } = await API.get(`/stocks/predict/${symbol}`);
     return data;
   },
+
+  getThesis: async (symbol) => {
+    const { data } = await API.get(`/stocks/thesis/${symbol}`);
+    return data;
+  },
 };
 
 export default stockService;

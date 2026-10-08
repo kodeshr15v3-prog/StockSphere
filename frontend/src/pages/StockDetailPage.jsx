@@ -8,6 +8,7 @@ import { useSocket } from '../context/SocketContext';
 import StockChart from '../components/StockChart';
 import toast from 'react-hot-toast';
 import stockService from '../services/stockService';
+import AIInvestmentThesis from '../components/AIInvestmentThesis';
 
 const StockDetailPage = () => {
   const { symbol } = useParams();
@@ -377,11 +378,17 @@ const StockDetailPage = () => {
               <strong>How it works:</strong> The forecasting engine fits a second-degree polynomial curve ($y = \beta_2 x^2 + \beta_1 x + \beta_0$) to the past 30 days of closing prices using the Ordinary Least Squares (OLS) method. The curve is then projected 5 days into the future to establish a trend.
             </p>
             <p>
-              <strong>Statistical Confidence:</strong> The dashed bounds on the chart represent a 95% confidence interval ($\pm 1.96 \times S_e$), reflecting volatility and price dispersion. Future projections are statistical estimations and should not be treated as financial advice.
+              <strong>Statistical Confidence:</strong> The dashed bounds on the chart represent a 95% confidence interval (&plusmn; 1.96 &times; S_e), reflecting volatility and price dispersion. Future projections are statistical estimations and should not be treated as financial advice.
             </p>
           </div>
         </div>
       )}
+
+      {/* Generative AI Bull / Bear Investment Thesis (Explainable AI - XAI) */}
+      <AIInvestmentThesis
+        symbol={symbol?.toUpperCase()}
+        predictionData={predictionsData}
+      />
 
       {/* Additional info */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
